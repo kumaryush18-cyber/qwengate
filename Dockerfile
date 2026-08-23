@@ -22,8 +22,9 @@ RUN apk add --no-cache \
     ttf-freefont \
     && rm -rf /var/cache/apk/*
 
-# Copy built artifacts
+# Copy built artifacts and necessary source files
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/src/routes/dashboard/public ./src/routes/dashboard/public
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./
 
