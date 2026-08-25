@@ -28,6 +28,9 @@ COPY --from=build /app/src/routes/dashboard/public ./src/routes/dashboard/public
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./
 
+# Install missing wreq-js musl native binding (not in bun.lock, needed for Alpine)
+RUN bun install @wreq-js/binding-linux-x64-musl 2>/dev/null || true
+
 # Download CloakBrowser stealth Chromium binary (wget is built into Alpine)
 RUN CLOAKBROWSER_VERSION="146.0.7680.177.5" && \
     mkdir -p /opt/cloakbrowser/chromium-${CLOAKBROWSER_VERSION} && \
