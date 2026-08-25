@@ -28,10 +28,10 @@ COPY --from=build /app/src/routes/dashboard/public ./src/routes/dashboard/public
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./
 
-# Download CloakBrowser stealth Chromium binary
+# Download CloakBrowser stealth Chromium binary (wget is built into Alpine)
 RUN CLOAKBROWSER_VERSION="146.0.7680.177.5" && \
     mkdir -p /opt/cloakbrowser/chromium-${CLOAKBROWSER_VERSION} && \
-    curl -sL "https://github.com/CloakHQ/CloakBrowser/releases/download/chromium-v${CLOAKBROWSER_VERSION}/cloakbrowser-linux-x64.tar.gz" \
+    wget -qO- "https://github.com/CloakHQ/CloakBrowser/releases/download/chromium-v${CLOAKBROWSER_VERSION}/cloakbrowser-linux-x64.tar.gz" \
       | tar -xz -C /opt/cloakbrowser/chromium-${CLOAKBROWSER_VERSION} && \
     chmod +x /opt/cloakbrowser/chromium-${CLOAKBROWSER_VERSION}/chrome
 
