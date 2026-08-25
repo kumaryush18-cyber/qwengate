@@ -28,6 +28,13 @@ COPY --from=build /app/src/routes/dashboard/public ./src/routes/dashboard/public
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./
 
+# Download CloakBrowser stealth Chromium binary
+RUN CLOAKBROWSER_VERSION="146.0.7680.177.5" && \
+    mkdir -p /opt/cloakbrowser/chromium-${CLOAKBROWSER_VERSION} && \
+    curl -sL "https://github.com/CloakHQ/CloakBrowser/releases/download/chromium-v${CLOAKBROWSER_VERSION}/cloakbrowser-linux-x64.tar.gz" \
+      | tar -xz -C /opt/cloakbrowser/chromium-${CLOAKBROWSER_VERSION} && \
+    chmod +x /opt/cloakbrowser/chromium-${CLOAKBROWSER_VERSION}/chrome
+
 # Non-root user for security
 RUN addgroup -g 1001 -S qwen && \
     adduser -S qwen -u 1001 -G qwen && \
@@ -37,6 +44,7 @@ USER qwen
 
 ENV QWEN_GATE_PORT=26405
 ENV NODE_ENV=production
+ENV CLOAKBROWSER_BINARY_PATH=/opt/cloakbrowser/chromium-146.0.7680.177.5/chrome
 EXPOSE 26405
 VOLUME [ "/app/.qwen" ]
 
