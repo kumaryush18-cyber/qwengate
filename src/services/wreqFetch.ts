@@ -35,7 +35,7 @@ function getPort(): number {
 async function startWorker(): Promise<string> {
   return new Promise((resolvePromise, reject) => {
     const port = getPort();
-    const proc = spawn('node', [WORKER_PATH], {
+    const proc = spawn('bun', [WORKER_PATH], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, WREQ_WORKER_PORT: String(port) },
     });

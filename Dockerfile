@@ -3,8 +3,6 @@ FROM oven/bun:alpine AS build
 WORKDIR /app
 COPY package.json bun.lock* package-lock.json* ./
 RUN bun install --frozen-lockfile 2>/dev/null || bun install
-# Install wreq-js musl binding (not in bun.lock, needed for Alpine)
-RUN bun install @wreq-js/binding-linux-x64-musl 2>/dev/null || true
 COPY . .
 RUN bun run build
 
