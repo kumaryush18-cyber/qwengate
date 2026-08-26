@@ -1,4 +1,5 @@
 import { Context } from 'hono';
+import crypto from 'node:crypto';
 import { logStore } from '../services/logStore.ts';
 import { sessionPool } from '../services/sessionPool.ts';
 import { detectParallelToolLoop } from '../tools/guard.ts';
@@ -215,6 +216,28 @@ function parseQwenResponse(line: string, state: StreamProcessorState, ctx: NonSt
       });
     }
   }
+
+  // Standard OpenAI-format tool_calls in streaming deltas (non-local_tool phase)
+  const deltaToolCalls = delta.tool_calls;
+  if (Array.isArray(deltaToolCalls)) {
+    for (const tc of deltaToolCalls) {
+      const idx = tc.index ?? 0;
+      // Accumulate: find existing or create new
+      let existing = state.toolCallsOut.find((t: any) => t._streamIndex === idx);
+      if (!existing) {
+        existing = {
+          id: tc.id || `call_${crypto.randomUUID()}`,
+          type: 'function',
+          function: { name: tc.function?.name || '', arguments: '' },
+          _streamIndex: idx,
+        };
+        state.toolCallsOut.push(existing);
+      }
+      if (tc.id) existing.id = tc.id;
+      if (tc.function?.name) existing.function.name = tc.function.name;
+      if (tc.function?.arguments) existing.function.arguments += tc.function.arguments;
+    }
+  }
 }
 
 function flushAndDetectLoops(state: StreamProcessorState, logId: string): void {
@@ -303,7 +326,10 @@ function buildResponseFromState(state: StreamProcessorState, ctx: NonStreamingCo
   const message: any = { role: 'assistant', content: state.toolCallsOut.length ? null : filteredContent };
   if (state.reasoningBuffer) message.reasoning_content = state.reasoningBuffer;
   if (state.toolCallsOut.length) {
-    state.toolCallsOut.forEach((tc, idx) => (tc.index = idx));
+    state.toolCallsOut.forEach((tc, idx) => {
+      tc.index = idx;
+      delete tc._streamIndex;
+    });
     message.tool_calls = state.toolCallsOut;
   }
 

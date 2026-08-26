@@ -221,10 +221,23 @@ function convertOpenAIResponseToAnthropic(openAIResp: any, requestModel: string)
     const required = REQUIRED_PARAMS[name];
     if (required) {
       const missing = required.filter((p) => args[p] === undefined || args[p] === null || args[p] === '');
-      if (missing.length > 0) return false;
-    } else if (!args || typeof args !== 'object' || Object.keys(args).length === 0) {
-      return false;
+      if (missing.length > 0) {
+        // Try to fix by copying snake_case variants
+        const fixed: any = { ...args };
+        for (const p of missing) {
+          if (p === 'filePath' && (fixed.file_path !== undefined)) { fixed.filePath = fixed.file_path; }
+          if (p === 'oldString' && (fixed.old_string !== undefined)) { fixed.oldString = fixed.old_string; }
+          if (p === 'newString' && (fixed.new_string !== undefined)) { fixed.newString = fixed.new_string; }
+          if (p === 'content' && (fixed.file_content !== undefined)) { fixed.content = fixed.file_content; }
+        }
+        const stillMissing = required.filter((p) => fixed[p] === undefined || fixed[p] === null || fixed[p] === '');
+        if (stillMissing.length > 0) return false;
+        // Update args in-place for the caller
+        Object.assign(args, fixed);
+      }
     }
+    // Accept as long as name is non-empty and args is an object
+    if (!name || name.trim().length === 0) return false;
     return true;
   }
 
@@ -607,6 +620,9 @@ async function handleAnthropicStream(
       let hasEmittedContent = false;
       let textBlockIndex = 0;
 
+      // Accumulate standard OpenAI-format streaming tool_calls (arguments arrive in chunks)
+      const openaiToolCallsAccum = new Map<number, { id: string; name: string; arguments: string }>();
+
       const STREAM_IDLE_TIMEOUT = Math.max(10_000, config.getInt('STREAM_IDLE_TIMEOUT_MS', 60_000));
 
       while (true) {
@@ -670,6 +686,21 @@ async function handleAnthropicStream(
             for (const c of calls) {
               logStore.log('debug', 'chat', `[Anthropic] local_mcp tool: name=${c.name} id=${c.id} args=${JSON.stringify(c.arguments)}`);
               if (!localToolCallsAccum.some((e) => e.id === c.id)) localToolCallsAccum.push(c);
+            }
+          }
+
+          // Extract standard OpenAI-format streaming tool_calls (arguments arrive in chunks)
+          const deltaToolCalls = chunk.choices?.[0]?.delta?.tool_calls;
+          if (Array.isArray(deltaToolCalls)) {
+            for (const tc of deltaToolCalls) {
+              const idx = tc.index ?? 0;
+              if (!openaiToolCallsAccum.has(idx)) {
+                openaiToolCallsAccum.set(idx, { id: tc.id || `call_${crypto.randomUUID()}`, name: tc.function?.name || '', arguments: '' });
+              }
+              const existing = openaiToolCallsAccum.get(idx)!;
+              if (tc.id) existing.id = tc.id;
+              if (tc.function?.name) existing.name = tc.function.name;
+              if (tc.function?.arguments) existing.arguments += tc.function.arguments;
             }
           }
 
@@ -813,10 +844,23 @@ async function handleAnthropicStream(
           logStore.log('debug', 'chat', `[Anthropic] Skipping duplicate local_mcp tool (already in XML): name=${ltc.name} id=${ltc.id}`);
         }
       }
+      // Merge accumulated OpenAI-format streaming tool_calls
+      for (const [, tc] of openaiToolCallsAccum) {
+        if (!tc.name) continue;
+        if (!allToolCalls.some((e) => e.id === tc.id)) {
+          logStore.log('debug', 'chat', `[Anthropic] Merging openai streaming tool: name=${tc.name} id=${tc.id} args_len=${tc.arguments.length}`);
+          allToolCalls.push({
+            id: tc.id,
+            name: tc.name,
+            arguments: tc.arguments,
+            _source: 'openai_streaming',
+          } as any);
+        }
+      }
       logStore.log(
         'debug',
         'chat',
-        `[Anthropic] Merged tool calls: ${allToolCalls.length} total (${xmlParsedCalls.length} XML + ${localToolCallsAccum.length} local_mcp)`,
+        `[Anthropic] Merged tool calls: ${allToolCalls.length} total (${xmlParsedCalls.length} XML + ${localToolCallsAccum.length} local_mcp + ${openaiToolCallsAccum.size} openai_streaming)`,
       );
 
       // Log raw tool calls from Qwen before filtering
@@ -824,7 +868,7 @@ async function handleAnthropicStream(
         logStore.log(
           'debug',
           'chat',
-          `[Anthropic] Raw tool call from Qwen: name=${tc.name} id=${tc.id} args=${JSON.stringify(tc.arguments)} source=${tc.id.startsWith('call_xml') ? 'xml' : 'local_mcp'}`,
+          `[Anthropic] Raw tool call from Qwen: name=${tc.name} id=${tc.id} args=${JSON.stringify(tc.arguments)} source=${(tc as any)._source || (tc.id.startsWith('call_xml') ? 'xml' : 'local_mcp')}`,
         );
       }
 
@@ -862,6 +906,33 @@ async function handleAnthropicStream(
         for (const [k, v] of Object.entries(args)) {
           mapped[mapParamName(tc.name, k)] = v;
         }
+        args = mapped;
+
+        const toolName = normalizeToolName(tc.name);
+        const required = REQUIRED_PARAMS[toolName];
+        if (required) {
+          // For known tools: check required params
+          const missing = required.filter((p) => args[p] === undefined || args[p] === null || args[p] === '');
+          if (missing.length > 0) {
+            // Try to fix by copying snake_case variants
+            const fixed: any = { ...args };
+            for (const p of missing) {
+              // Try the reverse camelCase→snake_case
+              if (p === 'filePath' && (fixed.file_path !== undefined)) { fixed.filePath = fixed.file_path; delete fixed.file_path; }
+              if (p === 'oldString' && (fixed.old_string !== undefined)) { fixed.oldString = fixed.old_string; delete fixed.old_string; }
+              if (p === 'newString' && (fixed.new_string !== undefined)) { fixed.newString = fixed.new_string; delete fixed.new_string; }
+              if (p === 'content' && (fixed.file_content !== undefined)) { fixed.content = fixed.file_content; delete fixed.file_content; }
+            }
+            const stillMissing = required.filter((p) => fixed[p] === undefined || fixed[p] === null || fixed[p] === '');
+            if (stillMissing.length > 0) {
+              logStore.log('debug', 'chat', `[Anthropic] Skipped tool call: ${tc.name} missing required params: ${stillMissing.join(', ')}`);
+              return { valid: false, fixedArgs: fixed };
+            }
+            return { valid: true, fixedArgs: fixed };
+          }
+        }
+        // For unknown tools: accept as long as name is non-empty
+        if (!tc.name || tc.name.trim().length === 0) return { valid: false, fixedArgs: args };
         args = mapped;
 
         const toolName = normalizeToolName(tc.name);
