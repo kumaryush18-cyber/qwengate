@@ -10,8 +10,10 @@ RUN bun run build
 FROM oven/bun:alpine AS production
 WORKDIR /app
 
-# Install system deps for Playwright/Chromium
+# Install Node.js (needed for wreq worker native .node addon) + Playwright/Chromium deps
 RUN apk add --no-cache \
+    nodejs \
+    npm \
     chromium \
     nss \
     freetype \
