@@ -27,6 +27,7 @@ RUN apk add --no-cache \
 # Copy built artifacts and necessary source files
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/src/routes/dashboard/public ./src/routes/dashboard/public
+COPY --from=build /app/src/worker ./dist/worker
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./
 
