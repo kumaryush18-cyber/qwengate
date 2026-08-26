@@ -933,24 +933,6 @@ async function handleAnthropicStream(
         }
         // For unknown tools: accept as long as name is non-empty
         if (!tc.name || tc.name.trim().length === 0) return { valid: false, fixedArgs: args };
-        args = mapped;
-
-        const toolName = normalizeToolName(tc.name);
-        const required = REQUIRED_PARAMS[toolName];
-        if (required) {
-          const missing = required.filter((p) => args[p] === undefined || args[p] === null || args[p] === '');
-          if (missing.length > 0) {
-            logStore.log(
-              'debug',
-              'chat',
-              `[Anthropic] Skipped tool call: ${tc.name} missing required params: ${missing.join(', ')} (had: ${JSON.stringify(args)})`,
-            );
-            return { valid: false, fixedArgs: args };
-          }
-        } else if (Object.keys(args).length === 0) {
-          logStore.log('debug', 'chat', `[Anthropic] Skipped tool call: ${tc.name} (no params)`);
-          return { valid: false, fixedArgs: {} };
-        }
 
         return { valid: true, fixedArgs: args };
       }
