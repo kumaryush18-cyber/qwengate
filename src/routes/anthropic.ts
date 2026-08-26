@@ -191,6 +191,11 @@ function convertOpenAIResponseToAnthropic(openAIResp: any, requestModel: string)
   const choice = openAIResp.choices?.[0];
   const message = choice?.message || {};
   const content: any[] = [];
+
+  // Emit reasoning/thinking block first (Anthropic format: thinking before text)
+  if (message.reasoning_content) {
+    content.push({ type: 'thinking', thinking: message.reasoning_content });
+  }
   if (message.content) {
     content.push({ type: 'text', text: message.content });
   }
@@ -263,7 +268,13 @@ function convertOpenAIResponseToAnthropic(openAIResp: any, requestModel: string)
     model: requestModel,
     stop_reason: finishReasonToAnthropic(choice?.finish_reason),
     stop_sequence: null,
-    usage: { input_tokens: openAIResp.usage?.prompt_tokens || 0, output_tokens: openAIResp.usage?.completion_tokens || 0 },
+    usage: {
+      input_tokens: openAIResp.usage?.prompt_tokens || 0,
+      output_tokens: openAIResp.usage?.completion_tokens || 0,
+      ...(openAIResp.usage?.completion_tokens_details?.reasoning_tokens
+        ? { thinking_tokens: openAIResp.usage.completion_tokens_details.reasoning_tokens }
+        : {}),
+    },
   };
 }
 
